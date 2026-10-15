@@ -1,0 +1,35 @@
+# Kotlin
+*.class
+*.kotlin_module
+*.jar
+*.iml
+
+# Gradle
+.gradle/
+build/
+**/build/
+!gradle-wrapper.jar
+
+# Android Studio
+.idea/
+*.iml
+*.iws
+*.ipr
+.cxx/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug
+*.apk
+*.aab
+*.ap_
+
+# Proguard
+proguard/
+
+# Build
+local.properties
+*.keystore
+key.properties

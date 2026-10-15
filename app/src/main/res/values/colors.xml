@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ColorOS 流体设计配色方案 -->
+    <color name="colorPrimary">#FF0081FF</color>
+    <color name="colorPrimaryDark">#FF005EDB</color>
+    <color name="colorAccent">#FF0081FF</color>
+    
+    <!-- 背景色（浅色模式） -->
+    <color name="background_light">#FFF5F7FA</color>
+    <color name="surface_light">#FFFFFFFF</color>
+    
+    <!-- 背景色（深色模式） -->
+    <color name="background_dark">#FF1C1B1F</color>
+    <color name="surface_dark">#FF2C2B30</color>
+    
+    <!-- 文字颜色 -->
+    <color name="text_primary_light">#FF1A1A1A</color>
+    <color name="text_secondary_light">#FF9E9E9E</color>
+    <color name="text_primary_dark">#FFFFFFFF</color>
+    <color name="text_secondary_dark">#FFBFBFC4</color>
+    
+    <!-- 半透明层叠效果 -->
+    <color name="translucent_white_70">#B3FFFFFF</color>
+    <color name="translucent_black_50">#80000000</color>
+    <color name="glass_effect">#CCFFFFFF</color>
+    
+    <!-- 进度条 -->
+    <color name="progress_default">#FF0081FF</color>
+</resources>

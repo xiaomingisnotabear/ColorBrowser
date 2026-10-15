@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 应用名称 -->
+    <string name="app_name">Color 浏览器</string>
+    
+    <!-- 底部导航 -->
+    <string name="nav_home">主页</string>
+    <string name="nav_tabs">标签页</string>
+    <string name="nav_downloads">下载</string>
+    <string name="nav_settings">设置</string>
+    
+    <!-- 地址栏 -->
+    <string name="address_hint">搜索或输入网址</string>
+    <string name="btn_back">后退</string>
+    <string name="btn_forward">前进</string>
+    <string name="btn_refresh">刷新</string>
+    <string name="btn_home">主页</string>
+    <string name="btn_more">更多</string>
+    
+    <!-- 标签页 -->
+    <string name="new_tab">新建标签页</string>
+    <string name="close_tab">关闭标签页</string>
+    <string name="close_all_tabs">关闭所有标签页</string>
+    
+    <!-- 下载 -->
+    <string name="download_complete">下载完成</string>
+    <string name="downloading">正在下载...</string>
+    <string name="pause_download">暂停</string>
+    <string name="resume_download">继续</string>
+    
+    <!-- 设置 -->
+    <string name="setting_night_mode">夜间模式</string>
+    <string name="setting_dark_theme">深色主题</string>
+    <string name="setting_font_size">字体大小</string>
+    <string name="setting_font_size_normal">标准</string>
+    <string name="setting_font_size_large">大</string>
+    <string name="setting_font_size_xlarge">特大</string>
+    <string name="setting_block_popups">阻止弹出窗口</string>
+    <string name="setting_block_ads">拦截广告</string>
+    <string name="setting_user_agent">用户代理</string>
+    <string name="setting_user_agent_mobile">移动端</string>
+    <string name="setting_user_agent_desktop">桌面端</string>
+    <string name="setting_cache">清除缓存</string>
+    <string name="setting_cache_success">缓存已清除</string>
+    
+    <!-- 其他 -->
+    <string name="loading">加载中...</string>
+    <string name="error_load">加载失败</string>
+    <string name="retry">重试</string>
+</resources>
