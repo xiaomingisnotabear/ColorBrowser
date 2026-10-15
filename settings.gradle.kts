@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "ColorBrowser"
-include ':app'
+include(":app")
