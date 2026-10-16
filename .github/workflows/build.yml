@@ -20,12 +20,8 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      - name: Generate Gradle Wrapper
-        run: |
-          curl -L -o /tmp/gradle-8.6-bin.zip https://services.gradle.org/distributions/gradle-8.6-bin.zip
-          unzip -q /tmp/gradle-8.6-bin.zip -d /tmp/
-          /tmp/gradle-8.6/bin/gradle wrapper --gradle-version 8.6 --distribution-type bin
-          chmod +x ./gradlew
+      - name: Grant execute permission
+        run: chmod +x ./gradlew
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon
