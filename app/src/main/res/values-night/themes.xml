@@ -1,14 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 深色模式主题 -->
-    <style name="Theme.ColorBrowser" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/colorPrimary</item>
-        <item name="colorPrimaryVariant">@color/colorPrimaryDark</item>
-        <item name="colorSecondary">@color/colorAccent</item>
-        
+    <style name="Theme.ColorBrowser" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/background_dark</item>
+        <item name="android:colorAccent">@color/colorAccent</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

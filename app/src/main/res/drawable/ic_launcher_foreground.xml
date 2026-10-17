@@ -1,26 +1,18 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- 主浏览器图标：蓝底白圆 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group
-        android:scaleX="0.6"
-        android:scaleY="0.6"
-        android:translateX="21.6"
-        android:translateY="21.6">
-        <!-- 外圆 -->
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0"/>
-        <!-- 内部蓝环 -->
-        <path
-            android:fillColor="#0081FF"
-            android:pathData="M54,54m-32,0a32,32 0,1 1,64 0a32,32 0,1 1,-64 0"/>
-        <!-- 中心白点 -->
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M54,54m-18,0a18,18 0,1 1,36 0a18,18 0,1 1,-36 0"/>
-    </group>
+    <!-- 白色圆环 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,54m-27,0a27,27 0,1 1,54 0a27,27 0,1 1,-54 0" />
+    <!-- 内部蓝色 -->
+    <path
+        android:fillColor="#0081FF"
+        android:pathData="M54,54m-19,0a19,19 0,1 1,38 0a19,19 0,1 1,-38 0" />
+    <!-- 中心白点 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,54m-8,0a8,8 0,1 1,16 0a8,8 0,1 1,-16 0" />
 </vector>

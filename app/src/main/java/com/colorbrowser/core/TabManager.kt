@@ -2,239 +2,229 @@ package com.colorbrowser.core
 
 import android.content.Context
 import android.content.SharedPreferences
-import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * 标签页管理器
- * 管理多个标签页的生命周期
+ * 多标签页管理。
+ *
+ * - [tabs] 保存所有 WebView 实例
+ * - [tabOrder] 维护展示顺序
+ * - 状态持久化到 SharedPreferences，冷启动可恢复
  */
 class TabManager(private val context: Context) {
-    private val tabs = ConcurrentHashMap<Int, TabWebView>()
-    private val tabOrder = mutableListOf<Int>()
+
+    private val tabs = LinkedHashMap<Int, TabWebView>()
+    private val prefs: SharedPreferences =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
     private var currentTabId: Int? = null
     private var nextTabId = 1
 
-    private val prefs: SharedPreferences =
-        context.getSharedPreferences("tabs", Context.MODE_PRIVATE)
+    /** UI 刷新回调，由 BrowserScreen 注册 */
+    var onTabsChanged: (() -> Unit)? = null
 
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    // ===== 查询 =====
 
-    /**
-     * 获取或创建标签页
-     */
-    fun getOrCreateTab(tabId: Int): TabWebView {
-        return tabs.getOrPut(tabId) {
-            TabWebView(context, tabId)
-        }
-    }
+    fun getTabs(): List<TabWebView> = tabs.values.toList()
 
-    /**
-     * 创建新标签页
-     */
-    fun newTab(): TabWebView {
+    fun getTabCount(): Int = tabs.size
+
+    fun getCurrentTab(): TabWebView? = currentTabId?.let { tabs[it] }
+
+    fun getCurrentTabId(): Int? = currentTabId
+
+    // ===== 创建 / 切换 / 关闭 =====
+
+    fun newTab(loadHome: Boolean = true): TabWebView {
         val id = nextTabId++
-        val tab = getOrCreateTab(id)
-        tabOrder.add(id)
-        setCurrentTab(id)
-
-        // 加载主页或空白页
-        val homePage = prefs.getString("homepage", "https://www.google.com")
-        tab.loadUrl(homePage ?: "about:blank")
-
-        persistState()
+        val tab = TabWebView(context, id)
+        tab.onStateChanged = { onTabsChanged?.invoke() }
+        tab.applyPreferences(
+            fontSize = getFontSize(),
+            desktopMode = isDesktopMode(),
+            blockPopups = isBlockPopups(),
+            dark = isDarkForKey()
+        )
+        tabs[id] = tab
+        currentTabId = id
+        if (loadHome) {
+            tab.loadUrl(getHomePage())
+        }
+        persist()
+        onTabsChanged?.invoke()
         return tab
     }
 
-    /**
-     * 设置当前标签页
-     */
     fun setCurrentTab(tabId: Int) {
-        currentTabId = tabId
+        if (tabs.containsKey(tabId)) {
+            currentTabId = tabId
+            persist()
+            onTabsChanged?.invoke()
+        }
     }
 
-    /**
-     * 获取当前标签页
-     */
-    fun getCurrentTab(): TabWebView? {
-        return currentTabId?.let { tabs[it] }
-    }
-
-    /**
-     * 关闭标签页
-     */
     fun closeTab(tabId: Int): Boolean {
         val tab = tabs.remove(tabId) ?: return false
-        tabOrder.remove(tabId)
         tab.destroy()
-
-        // 如果关闭的是当前标签，切换到最后一个
         if (currentTabId == tabId) {
-            currentTabId = tabOrder.lastOrNull()
+            currentTabId = tabs.keys.lastOrNull()
         }
-
-        persistState()
+        persist()
+        onTabsChanged?.invoke()
         return true
     }
 
-    /**
-     * 关闭所有标签页
-     */
     fun closeAllTabs() {
         tabs.values.forEach { it.destroy() }
         tabs.clear()
-        tabOrder.clear()
         currentTabId = null
         nextTabId = 1
-        persistState()
+        persist()
+        onTabsChanged?.invoke()
     }
 
-    /**
-     * 获取所有标签页（按顺序）
-     */
-    fun getTabs(): List<TabWebView> {
-        return tabOrder.mapNotNull { tabs[it] }
+    /** 至少保证存在一个标签页 */
+    fun ensureTab(): TabWebView {
+        getCurrentTab()?.let { return it }
+        tabs.values.firstOrNull()?.let {
+            currentTabId = it.tabId
+            return it
+        }
+        return newTab()
     }
 
-    /**
-     * 获取标签页数量
-     */
-    fun getTabCount(): Int = tabOrder.size
+    // ===== 设置应用 =====
 
-    /**
-     * 保存标签页状态到持久化存储
-     */
-    private fun persistState() {
+    fun applyGlobalPreferences() {
+        val fontSize = getFontSize()
+        val desktop = isDesktopMode()
+        val blockPopups = isBlockPopups()
+        val dark = isDarkForKey()
+        tabs.values.forEach { it.applyPreferences(fontSize, desktop, blockPopups, dark) }
+        onTabsChanged?.invoke()
+    }
+
+    // ===== 持久化 =====
+
+    private fun persist() {
         val editor = prefs.edit()
-        tabOrder.forEach { tabId ->
-            val tab = tabs[tabId]
-            if (tab != null) {
-                editor.putString("tab_$tabId", tab.url)
-                editor.putString("tab_${tabId}_title", tab.title)
+        val ids = tabs.keys.toList()
+        editor.putInt(KEY_TAB_COUNT, ids.size)
+        ids.forEachIndexed { index, id ->
+            editor.putInt("tab_id_$index", id)
+            tabs[id]?.let { tab ->
+                editor.putString("tab_url_$id", tab.url)
+                editor.putString("tab_title_$id", tab.title)
             }
         }
-        tabOrder.forEachIndexed { index, tabId ->
-            editor.putInt("tab_order_$index", tabId)
-        }
-        editor.putInt("tab_order_count", tabOrder.size)
-        if (currentTabId != null) {
-            editor.putInt("current_tab", currentTabId!!)
-        }
-        editor.putInt("next_tab_id", nextTabId)
+        currentTabId?.let { editor.putInt(KEY_CURRENT_TAB, it) }
+        editor.putInt(KEY_NEXT_ID, nextTabId)
         editor.apply()
     }
 
-    /**
-     * 恢复标签页状态
-     */
-    fun restoreTabs() {
-        // 先恢复 order
-        val count = prefs.getInt("tab_order_count", 0)
-        for (i in 0 until count) {
-            val tabId = prefs.getInt("tab_order_$i", -1)
-            if (tabId >= 0) {
-                val url = prefs.getString("tab_$tabId", null)
-                if (url != null && url != "about:blank") {
-                    val tab = getOrCreateTab(tabId)
-                    if (tabId !in tabOrder) {
-                        tabOrder.add(tabId)
-                    }
-                    tab.loadUrl(url)
-                }
+    /** 冷启动恢复上次的标签页；无记录时返回 false */
+    fun restoreTabs(): Boolean {
+        val count = prefs.getInt(KEY_TAB_COUNT, 0)
+        if (count <= 0) return false
+
+        val restored = mutableListOf<Int>()
+        for (index in 0 until count) {
+            val id = prefs.getInt("tab_id_$index", -1)
+            if (id < 0) continue
+            val savedUrl = prefs.getString("tab_url_$id", null)
+            val tab = TabWebView(context, id)
+            tab.onStateChanged = { onTabsChanged?.invoke() }
+            tab.applyPreferences(
+                fontSize = getFontSize(),
+                desktopMode = isDesktopMode(),
+                blockPopups = isBlockPopups(),
+                dark = isDarkForKey()
+            )
+            if (!savedUrl.isNullOrBlank() && savedUrl != "about:blank") {
+                tab.loadUrl(savedUrl)
             }
+            tabs[id] = tab
+            restored.add(id)
         }
 
-        // 恢复当前标签
-        val currentId = prefs.getInt("current_tab", -1)
-        if (currentId >= 0 && tabs.containsKey(currentId)) {
-            setCurrentTab(currentId)
-        } else {
-            currentTabId = tabOrder.firstOrNull()
-        }
+        if (restored.isEmpty()) return false
 
-        // 恢复 nextTabId
-        nextTabId = prefs.getInt("next_tab_id", 1)
+        val savedCurrent = prefs.getInt(KEY_CURRENT_TAB, -1)
+        currentTabId = if (tabs.containsKey(savedCurrent)) savedCurrent else restored.first()
+        nextTabId = maxOf(prefs.getInt(KEY_NEXT_ID, 1), (restored.maxOrNull() ?: 0) + 1)
+        onTabsChanged?.invoke()
+        return true
     }
 
-    /**
-     * 获取主页设置
-     */
-    fun getHomePage(): String = prefs.getString("homepage", "https://www.google.com") ?: ""
+    // ===== 偏好设置 =====
 
-    /**
-     * 设置主页
-     */
-    fun setHomePage(url: String) {
-        prefs.edit().putString("homepage", url).apply()
+    fun getHomePage(): String =
+        prefs.getString(KEY_HOME_PAGE, DEFAULT_HOME_PAGE) ?: DEFAULT_HOME_PAGE
+
+    fun setHomePage(value: String) {
+        val normalized = TabWebView.normalizeUrl(value)
+        prefs.edit().putString(KEY_HOME_PAGE, normalized.ifBlank { DEFAULT_HOME_PAGE }).apply()
     }
 
-    /**
-     * 设置字体大小
-     */
-    fun setFontSize(size: Int) {
-        prefs.edit().putInt("font_size", size).apply()
+    fun getFontSize(): Int = prefs.getInt(KEY_FONT_SIZE, 100).coerceIn(50, 250)
+
+    fun setFontSize(value: Int) {
+        prefs.edit().putInt(KEY_FONT_SIZE, value.coerceIn(50, 250)).apply()
+        applyGlobalPreferences()
     }
 
-    /**
-     * 获取字体大小
-     */
-    fun getFontSize(): Int = prefs.getInt("font_size", 100)
+    fun isDesktopMode(): Boolean = prefs.getBoolean(KEY_DESKTOP_UA, false)
 
-    /**
-     * 获取偏好设置
-     */
-    fun getBooleanPreference(key: String, default: Boolean): Boolean =
-        prefs.getBoolean(key, default)
-
-    /**
-     * 设置偏好设置
-     */
-    fun setBooleanPreference(key: String, value: Boolean) {
-        prefs.edit().putBoolean(key, value).apply()
+    fun setDesktopMode(value: Boolean) {
+        prefs.edit().putBoolean(KEY_DESKTOP_UA, value).apply()
+        applyGlobalPreferences()
     }
 
-    /**
-     * 获取字符串偏好
-     */
-    fun getStringPreference(key: String, default: String): String =
-        prefs.getString(key, default) ?: default
+    fun isBlockPopups(): Boolean = prefs.getBoolean(KEY_BLOCK_POPUPS, true)
 
-    /**
-     * 设置字符串偏好
-     */
-    fun setStringPreference(key: String, value: String) {
-        prefs.edit().putString(key, value).apply()
+    fun setBlockPopups(value: Boolean) {
+        prefs.edit().putBoolean(KEY_BLOCK_POPUPS, value).apply()
+        applyGlobalPreferences()
     }
 
-    /**
-     * 清除所有缓存
-     */
-    fun clearCache() {
-        prefs.edit().clear().apply()
+    /** 0 = 跟随系统, 1 = 浅色, 2 = 深色 */
+    fun getNightMode(): Int = prefs.getInt(KEY_NIGHT_MODE, 0)
+
+    fun setNightMode(value: Int) {
+        prefs.edit().putInt(KEY_NIGHT_MODE, value).apply()
+        applyGlobalPreferences()
+    }
+
+    private fun isDarkForKey(): Boolean = getNightMode() == 2
+
+    fun clearAllData() {
+        closeAllTabs()
+        prefs.edit()
+            .remove(KEY_HOME_PAGE)
+            .remove(KEY_FONT_SIZE)
+            .remove(KEY_DESKTOP_UA)
+            .remove(KEY_BLOCK_POPUPS)
+            .remove(KEY_NIGHT_MODE)
+            .apply()
+    }
+
+    fun destroy() {
         tabs.values.forEach { it.destroy() }
         tabs.clear()
-        tabOrder.clear()
         currentTabId = null
-        nextTabId = 1
     }
 
-    /**
-     * 释放资源
-     */
-    fun destroy() {
-        scope.cancel()
-        closeAllTabs()
-    }
-}
+    companion object {
+        private const val PREFS_NAME = "color_browser_prefs"
+        private const val DEFAULT_HOME_PAGE = "https://www.baidu.com"
 
-/**
- * 偏好设置 Key
- */
-object Prefs {
-    const val NIGHT_MODE = "night_mode"
-    const val BLOCK_POPUPS = "block_popups"
-    const val BLOCK_ADS = "block_ads"
-    const val FONT_SIZE = "font_size"
-    const val USER_AGENT_MOBILE = "user_agent_mobile"
-    const val HOMEPAGE = "homepage"
+        private const val KEY_TAB_COUNT = "tab_count"
+        private const val KEY_CURRENT_TAB = "current_tab_id"
+        private const val KEY_NEXT_ID = "next_tab_id"
+        private const val KEY_HOME_PAGE = "home_page"
+        private const val KEY_FONT_SIZE = "font_size"
+        private const val KEY_DESKTOP_UA = "desktop_ua"
+        private const val KEY_BLOCK_POPUPS = "block_popups"
+        private const val KEY_NIGHT_MODE = "night_mode"
+    }
 }

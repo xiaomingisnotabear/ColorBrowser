@@ -1,16 +1,14 @@
-# 优化
--keepattributes *Annotation*
--keepclassmembers class ** {
+# 保留 WebView JS 接口
+-keepclassmembers class * {
     @android.webkit.JavascriptInterface <methods>;
 }
 
 # WebView
--dontwarn org.chromium.**
--dontwarn android.net.http.**
+-dontwarn android.webkit.**
 
-# Compose
+# Kotlin 协程
 -dontwarn kotlinx.coroutines.**
--dontwarn androidx.compose.**
 
-# 移除日志
--assumenosideeffect
+# 保留行号便于排查崩溃
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile

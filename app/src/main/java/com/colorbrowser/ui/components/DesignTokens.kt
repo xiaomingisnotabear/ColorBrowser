@@ -1,38 +1,32 @@
 package com.colorbrowser.ui.components
 
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.SpringSpec
+import androidx.compose.ui.unit.dp
 
-// 主题色扩展
-val ThemeColors get() = if (isSystemInDarkTheme()) com.colorbrowser.ui.DarkColors else com.colorbrowser.ui.LightColors
-
-// 圆角常量 - ColorOS 强圆角
+/**
+ * ColorOS 流体设计令牌
+ * 统一圆角 / 间距 / 动画常量，供全项目复用。
+ */
 object Radius {
-    val XS = androidx.compose.ui.unit.Dp(8f)
-    val SM = androidx.compose.ui.unit.Dp(12f)
-    val MD = androidx.compose.ui.unit.Dp(16f)
-    val LG = androidx.compose.ui.unit.Dp(24f)
-    val XL = androidx.compose.ui.unit.Dp(32f)
-    val FULL = androidx.compose.ui.unit.Dp(999f)
+    val xs = 8.dp
+    val sm = 12.dp
+    val md = 16.dp
+    val lg = 24.dp
+    val xl = 32.dp
+    val pill = 100.dp
 }
 
-// 间距常量
 object Spacing {
-    val XS = androidx.compose.ui.unit.Dp(4f)
-    val SM = androidx.compose.ui.unit.Dp(8f)
-    val MD = androidx.compose.ui.unit.Dp(16f)
-    val LG = androidx.compose.ui.unit.Dp(24f)
+    val xs = 4.dp
+    val sm = 8.dp
+    val md = 12.dp
+    val lg = 16.dp
+    val xl = 24.dp
 }
 
-// 弹性动画时长
-object Animation {
-    val FAST = 200L
-    val NORMAL = 300L
-    val SLOW = 500L
-}
-
-// 流体形变幅度
-object Fluid {
-    val MAX_SCALE = 1.03f
-    val MIN_SCALE = 0.97f
-}
+/** 弹性曲线：轻微回弹，ColorOS 核心触感 */
+val FluidSpring = SpringSpec<Float>(
+    dampingRatio = Spring.DampingRatioMediumBouncy,
+    stiffness = Spring.StiffnessMediumLow
+)

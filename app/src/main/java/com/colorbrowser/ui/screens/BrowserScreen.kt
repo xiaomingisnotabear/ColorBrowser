@@ -1,302 +1,424 @@
 package com.colorbrowser.ui.screens
 
-import android.annotation.SuppressLint
-import android.content.Intent
-import android.net.Uri
 import android.view.ViewGroup
-import android.webkit.WebView
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
+import android.widget.FrameLayout
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.foundation.isSystemInDarkTheme
 import com.colorbrowser.core.TabManager
 import com.colorbrowser.core.TabWebView
-import com.colorbrowser.ui.components.*
+import com.colorbrowser.ui.components.BouncyIconButton
+import com.colorbrowser.ui.components.FloatingNavBar
+import com.colorbrowser.ui.components.Radius
+import com.colorbrowser.ui.components.glassStrokeColor
+import com.colorbrowser.ui.components.glassSurfaceColor
+import com.colorbrowser.ui.components.subtleFillColor
+import com.colorbrowser.ui.components.themeBackground
+import com.colorbrowser.ui.components.themePrimary
+import com.colorbrowser.ui.components.themeTextPrimary
+import com.colorbrowser.ui.components.themeTextSecondary
+
+private enum class Overlay { None, Tabs, Downloads, Settings }
+
+private enum class NavAction { Back, Forward, Refresh, Home }
 
 /**
- * 浏览器主界面 - 核心入口
+ * 浏览器主界面。
+ *
+ * 布局：WebView 占满 → 顶部细进度条 → 底部悬浮「地址栏 + 导航栏」。
  */
 @Composable
 fun BrowserScreen(
+    nightMode: Int,
+    onNightModeChange: (Int) -> Unit,
+    initialUrl: String? = null,
+    onUrlConsumed: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val tabManager = remember { TabManager(context) }
 
-    var currentTabIndex by remember { mutableIntStateOf(0) }
-    var selectedNav by remember { mutableIntStateOf(0) }
-    var showTabs by remember { mutableStateOf(false) }
-    var showDownloads by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
+    // 用计数器驱动重组：TabManager 内部是普通字段，非 Compose 状态
+    var revision by remember { mutableIntStateOf(0) }
+    var overlay by remember { mutableStateOf(Overlay.None) }
     var addressText by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(false) }
+    var addressFocused by remember { mutableStateOf(false) }
     var progress by remember { mutableIntStateOf(0) }
+    var isPageLoading by remember { mutableStateOf(false) }
+
+    val webHost = remember { FrameLayout(context) }
+
+    DisposableEffect(tabManager) {
+        tabManager.onTabsChanged = { revision++ }
+        onDispose {
+            tabManager.onTabsChanged = null
+            tabManager.destroy()
+        }
+    }
 
     LaunchedEffect(Unit) {
-        withContext(Dispatchers.Main) {
-            tabManager.restoreTabs()
-            val tabs = tabManager.getTabs()
-            if (tabs.isNotEmpty()) {
-                currentTabIndex = 0
-                tabManager.setCurrentTab(tabs[0].tabId)
-                addressText = tabs[0].url
-                isLoading = tabs[0].isLoading
-            } else {
-                val tab = tabManager.newTab()
-                addressText = tab.url
-            }
+        val restored = tabManager.restoreTabs()
+        if (!restored) tabManager.newTab()
+        revision++
+    }
+
+    // 外部链接唤起：等待首次初始化完成后再加载，避免多开标签
+    LaunchedEffect(initialUrl) {
+        val target = initialUrl ?: return@LaunchedEffect
+        val tab = tabManager.ensureTab()
+        tab.loadUrl(target)
+        onUrlConsumed()
+        revision++
+    }
+
+    // 依赖 revision 才能拿到最新标签页（TabManager 内部非 Compose 状态）
+    val tabs = remember(revision) { tabManager.getTabs() }
+    val currentTab: TabWebView? = remember(revision) { tabManager.getCurrentTab() }
+
+    // 地址栏与当前页面同步（用户正在编辑时不打断）
+    LaunchedEffect(currentTab?.tabId, currentTab?.url, addressFocused) {
+        if (!addressFocused) {
+            addressText = currentTab?.url.orEmpty()
         }
     }
 
-    fun getCurrentTab(): TabWebView? = tabManager.getTabs().getOrNull(currentTabIndex)
-
-    fun switchToTab(index: Int) {
-        val tabs = tabManager.getTabs()
-        if (index in tabs.indices) {
-            currentTabIndex = index
-            tabManager.setCurrentTab(tabs[index].tabId)
-            addressText = tabs[index].url
-            isLoading = tabs[index].isLoading
-            showTabs = false
-        }
+    LaunchedEffect(revision) {
+        progress = currentTab?.progress ?: 0
+        isPageLoading = currentTab?.isLoading == true
     }
 
-    fun closeCurrentTab() {
-        val tabs = tabManager.getTabs()
-        if (tabs.size > 1) {
-            tabManager.closeTab(tabs[currentTabIndex].tabId)
-            currentTabIndex = (currentTabIndex - 1).coerceAtLeast(0)
-            val newTab = tabManager.getTabs().getOrNull(currentTabIndex)
-            if (newTab != null) {
-                addressText = newTab.url
-                isLoading = newTab.isLoading
-            }
+    fun submitAddress() {
+        val tab = currentTab ?: tabManager.ensureTab()
+        val input = addressText.trim()
+        if (input.isEmpty()) return
+        val normalized = TabWebView.normalizeUrl(input)
+        if (normalized.startsWith("http") || normalized.startsWith("file")) {
+            tab.loadUrl(normalized)
+        } else {
+            tab.search(input)
         }
+        addressFocused = false
+        focusManager.clearFocus()
+        revision++
     }
 
-    Scaffold(
-        modifier = modifier,
-        containerColor = themeBackground(),
-        topBar = {
-            if (progress > 0 && progress < 100) {
-                Box(
-                    modifier = Modifier.fillMaxWidth().height(3.dp)
-                ) {
-                    LinearProgressIndicator(
-                        progress = { progress / 100f },
-                        modifier = Modifier.fillMaxWidth(),
-                        color = themePrimary(),
-                        trackColor = themePrimary().copy(alpha = 0.2f),
-                    )
+    fun handleNav(action: NavAction) {
+        val tab = currentTab ?: return
+        when (action) {
+            NavAction.Back -> tab.goBack()
+            NavAction.Forward -> tab.goForward()
+            NavAction.Refresh -> tab.reload()
+            NavAction.Home -> tab.loadUrl(tabManager.getHomePage())
+        }
+        revision++
+    }
+
+    BackHandler(enabled = overlay != Overlay.None) { overlay = Overlay.None }
+    BackHandler(enabled = overlay == Overlay.None && currentTab?.canGoBack == true) {
+        currentTab?.goBack()
+        revision++
+    }
+
+    Box(modifier = modifier.fillMaxSize().background(themeBackground())) {
+
+        // ===== WebView 宿主 =====
+        AndroidView(
+            factory = { webHost },
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding(),
+            update = { container ->
+                val tab = currentTab
+                if (tab == null) {
+                    container.removeAllViews()
+                } else {
+                    val wv = tab.webView
+                    if (wv.parent !== container) {
+                        (wv.parent as? ViewGroup)?.removeView(wv)
+                        container.removeAllViews()
+                        container.addView(
+                            wv,
+                            FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                        )
+                    }
                 }
             }
+        )
+
+        // ===== 顶部加载进度 =====
+        AnimatedVisibility(
+            visible = isPageLoading,
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding(),
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            LinearProgressIndicator(
+                progress = (progress.coerceIn(0, 100) / 100f),
+                modifier = Modifier.fillMaxWidth().height(2.dp),
+                color = themePrimary(),
+                trackColor = Color.Transparent
+            )
         }
-    ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            AndroidView(
-                factory = { ctx ->
-                    val tab = getCurrentTab()
-                    val wv = if (tab != null) tab.webView else WebView(ctx).also {
-                        it.settings.javaScriptEnabled = true
-                        it.settings.domStorageEnabled = true
-                    }
-                    wv.setBackgroundColor(themeBackground().toInt())
-                    wv
+
+        // ===== 底部地址栏 + 悬浮导航 =====
+        AnimatedVisibility(
+            visible = overlay == Overlay.None,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = slideInVertically { it / 3 } + fadeIn(),
+            exit = slideOutVertically { it / 3 } + fadeOut()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                AddressBar(
+                    text = addressText,
+                    canGoBack = currentTab?.canGoBack == true,
+                    canGoForward = currentTab?.canGoForward == true,
+                    onTextChange = { addressText = it },
+                    onSubmit = { submitAddress() },
+                    onNavigate = { handleNav(it) },
+                    onNewTab = {
+                        tabManager.newTab()
+                        revision++
+                    },
+                    onFocusChange = { addressFocused = it },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                FloatingNavBar(
+                    selected = 0,
+                    onSelected = { index ->
+                        when (index) {
+                            1 -> overlay = Overlay.Tabs
+                            2 -> overlay = Overlay.Downloads
+                            3 -> overlay = Overlay.Settings
+                            else -> overlay = Overlay.None
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        // ===== 覆盖层 =====
+        when (overlay) {
+            Overlay.Tabs -> TabsScreen(
+                tabs = tabs,
+                currentTabId = currentTab?.tabId ?: -1,
+                onSelect = { id ->
+                    tabManager.setCurrentTab(id)
+                    revision++
+                    overlay = Overlay.None
                 },
-                update = { wv ->
-                    wv.setWebChromeClient(object : android.webkit.WebChromeClient() {
-                        override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                            progress = newProgress ?: 0
-                            isLoading = (newProgress ?: 0) < 100
-                        }
-                    })
-                    wv.setWebViewClient(object : android.webkit.WebViewClient() {
-                        override fun onPageFinished(view: WebView?, url: String?) {
-                            isLoading = false
-                            progress = 100
-                        }
-                        override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
-                            request?.let {
-                                val uri = it.url
-                                if (uri.scheme == "http" || uri.scheme == "https") return false
-                                try { view?.context?.startActivity(Intent(Intent.ACTION_VIEW, uri)) } catch (e: Exception) {}
-                                return true
-                            }
-                            return false
-                        }
-                    })
+                onClose = { id ->
+                    tabManager.closeTab(id)
+                    if (tabManager.getTabCount() == 0) tabManager.newTab()
+                    revision++
+                },
+                onNewTab = {
+                    tabManager.newTab()
+                    revision++
+                    overlay = Overlay.None
+                },
+                onCloseAll = {
+                    tabManager.closeAllTabs()
+                    tabManager.newTab()
+                    revision++
+                    overlay = Overlay.None
+                },
+                onBack = { overlay = Overlay.None }
+            )
+
+            Overlay.Downloads -> DownloadsScreen(
+                onBack = { overlay = Overlay.None }
+            )
+
+            Overlay.Settings -> SettingsScreen(
+                tabManager = tabManager,
+                nightMode = nightMode,
+                onNightModeChange = onNightModeChange,
+                onDataCleared = {
+                    tabManager.newTab()
+                    revision++
+                },
+                onBack = {
+                    revision++
+                    overlay = Overlay.None
                 }
             )
 
-            // 底部导航区域
-            AnimatedVisibility(
-                visible = !showTabs && !showDownloads && !showSettings,
-                enter = slideInVertically { it / 4 } + fadeIn(),
-                exit = slideOutVertically { it / 4 } + fadeOut()
-            ) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(bottom = 8.dp)
-                ) {
-                    AddressBar(
-                        text = addressText,
-                        isLoading = isLoading,
-                        canGoBack = (getCurrentTab()?.canGoBack ?: false),
-                        canGoForward = (getCurrentTab()?.canGoForward ?: false),
-                        onNavigate = { action ->
-                            val tab = getCurrentTab() ?: return@AddressBar
-                            when (action) {
-                                "back" -> tab.goBack()
-                                "forward" -> tab.goForward()
-                                "refresh" -> tab.reload()
-                                "home" -> {
-                                    tab.loadUrl(tabManager.getHomePage())
-                                    addressText = tabManager.getHomePage()
-                                }
-                                "new" -> {
-                                    val newTab = tabManager.newTab()
-                                    currentTabIndex = tabManager.getTabs().size - 1
-                                    addressText = newTab.url
-                                    showTabs = false
-                                }
-                            }
-                        },
-                        onAddressChange = { addressText = it },
-                        onSubmit = {
-                            val tab = getCurrentTab() ?: run { tabManager.newTab(); currentTabIndex = 0; return@AddressBar }
-                            val text = addressText.trim()
-                            if (text.startsWith("http://") || text.startsWith("https://")) tab.loadUrl(text) else tab.search(text)
-                            isLoading = true
-                        },
-                        onNewTab = {
-                            tabManager.newTab()
-                            currentTabIndex = tabManager.getTabs().size - 1
-                            addressText = tabManager.getTabs().last().url
-                            showTabs = false
-                        },
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    FloatingNavBar(
-                        selected = selectedNav,
-                        onSelected = { index ->
-                            selectedNav = index
-                            when (index) {
-                                1 -> showTabs = true
-                                2 -> showDownloads = true
-                                3 -> showSettings = true
-                                else -> { showTabs = false; showDownloads = false; showSettings = false }
-                            }
-                        },
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-                }
-            }
-
-            // 标签页界面
-            AnimatedVisibility(visible = showTabs, enter = slideInVertically { it / 2 } + fadeIn()) {
-                TabsScreen(
-                    tabs = tabManager.getTabs(),
-                    currentIndex = currentTabIndex,
-                    onTabClick = { switchToTab(it) },
-                    onTabLongPress = { closeCurrentTab() },
-                    onNewTab = { tabManager.newTab(); currentTabIndex = tabManager.getTabs().size - 1; showTabs = false },
-                    onCloseAll = { tabManager.closeAllTabs(); tabManager.newTab(); currentTabIndex = 0; showTabs = false },
-                    onBack = { showTabs = false },
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-
-            // 下载界面
-            AnimatedVisibility(visible = showDownloads, enter = slideInVertically { it / 2 } + fadeIn()) {
-                DownloadsScreen(onBack = { showDownloads = false; selectedNav = 0 }, modifier = Modifier.fillMaxSize())
-            }
-
-            // 设置界面
-            AnimatedVisibility(visible = showSettings, enter = slideInVertically { it / 2 } + fadeIn()) {
-                SettingsScreen(onBack = { showSettings = false; selectedNav = 0 }, tabManager = tabManager, modifier = Modifier.fillMaxSize())
-            }
+            Overlay.None -> Unit
         }
     }
 }
 
+/**
+ * 悬浮地址栏：玻璃质感 + 弹性按钮 + 胶囊输入框
+ */
 @Composable
-fun AddressBar(
+private fun AddressBar(
     text: String,
-    isLoading: Boolean,
     canGoBack: Boolean,
     canGoForward: Boolean,
-    onNavigate: (String) -> Unit,
-    onAddressChange: (String) -> Unit,
+    onTextChange: (String) -> Unit,
     onSubmit: () -> Unit,
+    onNavigate: (NavAction) -> Unit,
     onNewTab: () -> Unit,
+    onFocusChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val dark = isSystemInDarkTheme()
-
+    val shape = RoundedCornerShape(Radius.xl)
     Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(24.dp),
-        color = if (dark) Color(0xE62C2B30) else Color(0xF2FFFFFF),
-        shadowElevation = 8.dp
+        modifier = modifier.border(1.dp, glassStrokeColor(), shape),
+        shape = shape,
+        color = glassSurfaceColor(),
+        shadowElevation = 10.dp
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp)) {
-            IconButton(onClick = { onNavigate("back") }, enabled = canGoBack, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Outlined.ArrowBack, "后退", tint = if (canGoBack) themeTextPrimary() else Color.Gray, modifier = Modifier.size(18.dp))
-            }
-            IconButton(onClick = { onNavigate("forward") }, enabled = canGoForward, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Outlined.ArrowForward, "前进", tint = if (canGoForward) themeTextPrimary() else Color.Gray, modifier = Modifier.size(18.dp))
-            }
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            BouncyIconButton(
+                icon = Icons.Filled.KeyboardArrowLeft,
+                contentDescription = "后退",
+                onClick = { onNavigate(NavAction.Back) },
+                enabled = canGoBack,
+                tint = themeTextPrimary()
+            )
+
+            BouncyIconButton(
+                icon = Icons.Filled.KeyboardArrowRight,
+                contentDescription = "前进",
+                onClick = { onNavigate(NavAction.Forward) },
+                enabled = canGoForward,
+                tint = themeTextPrimary()
+            )
+
+            Spacer(Modifier.width(2.dp))
+
             Surface(
-                modifier = Modifier.weight(1f).height(44.dp),
-                shape = RoundedCornerShape(22.dp),
-                color = if (dark) Color(0x1AFFFFFF) else Color(0x0D000000)
+                modifier = Modifier
+                    .weight(1f)
+                    .height(40.dp),
+                shape = RoundedCornerShape(Radius.pill),
+                color = subtleFillColor()
             ) {
-                BasicTextField(
-                    value = text,
-                    onValueChange = onAddressChange,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
-                    singleLine = true,
-                    decorationBox = { innerTextField ->
-                        if (text.isEmpty()) {
-                            Text("搜索或输入网址", style = MaterialTheme.typography.bodyMedium, color = themeTextSecondary())
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    BasicTextField(
+                        value = text,
+                        onValueChange = onTextChange,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { onFocusChange(it.isFocused) },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            color = themeTextPrimary()
+                        ),
+                        cursorBrush = SolidColor(themePrimary()),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Uri,
+                            imeAction = ImeAction.Go
+                        ),
+                        keyboardActions = KeyboardActions(onGo = { onSubmit() }),
+                        decorationBox = { innerTextField ->
+                            if (text.isEmpty()) {
+                                Text(
+                                    text = "搜索或输入网址",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = themeTextSecondary()
+                                )
+                            }
+                            innerTextField()
                         }
-                        innerTextField()
-                    },
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = themeTextPrimary()),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
-                )
+                    )
+                }
             }
-            val spin by animateFloatAsState(if (isLoading) 360f else 0f, InfiniteRepeatableSpec(tween(1000), RepeatMode.Restart), label = "")
-            IconButton(onClick = { onNavigate("refresh") }, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Outlined.Refresh, "刷新", tint = themeTextPrimary(), modifier = Modifier.size(18.dp).rotate(spin))
-            }
-            IconButton(onClick = { onNavigate("home") }, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Outlined.Home, "主页", tint = themeTextPrimary(), modifier = Modifier.size(18.dp))
-            }
-            IconButton(onClick = onNewTab, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Outlined.Add, "新标签", tint = themeTextPrimary(), modifier = Modifier.size(18.dp))
-            }
+
+            Spacer(Modifier.width(2.dp))
+
+            BouncyIconButton(
+                icon = Icons.Filled.Refresh,
+                contentDescription = "刷新",
+                onClick = { onNavigate(NavAction.Refresh) },
+                tint = themeTextPrimary()
+            )
+
+            BouncyIconButton(
+                icon = Icons.Filled.Home,
+                contentDescription = "主页",
+                onClick = { onNavigate(NavAction.Home) },
+                tint = themeTextPrimary()
+            )
+
+            BouncyIconButton(
+                icon = Icons.Filled.Add,
+                contentDescription = "新建标签页",
+                onClick = onNewTab,
+                tint = themeTextPrimary()
+            )
         }
     }
 }
